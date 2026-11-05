@@ -1,0 +1,24 @@
+# docbridge + Liquid AI LFM3-VL-2B (via llama.cpp) for high-quality Thai/English OCR.
+#   docker compose up
+# First start downloads the ~1.1 GB Q4_K_M weights into the llama-cache volume.
+# If the llama.cpp image/flags change, check https://huggingface.co/LiquidAI/LFM3-VL-2B-GGUF
+services:
+  lfm3:
+    image: ghcr.io/ggml-org/llama.cpp:server
+    command: ["-hf", "LiquidAI/LFM3-VL-2B-GGUF:Q4_K_M", "--host", "0.0.0.0", "--port", "8080", "-c", "16384"]
+    volumes:
+      - llama-cache:/root/.cache
+    ports:
+      - "8080:8080"
+
+  docbridge:
+    build: .
+    depends_on: [lfm3]
+    environment:
+      DOCBRIDGE_VLM: http
+      DOCBRIDGE_VLM_URL: http://lfm3:8080/v1
+    ports:
+      - "8000:8000"
+
+volumes:
+  llama-cache:

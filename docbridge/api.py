@@ -3,11 +3,14 @@
 Environment:
   DOCBRIDGE_API_KEY   if set, requests must send it in the X-API-Key header
   DOCBRIDGE_MAX_MB    upload size limit in MB (default 25)
+  DOCBRIDGE_VLM       "http" or "transformers" to enable LFM3-VL-2B OCR (see docbridge/vlm.py)
 """
 from __future__ import annotations
 
 import hmac
 import os
+
+from typing import Literal
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
 
@@ -35,7 +38,10 @@ async def _read(file: UploadFile) -> bytes:
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": __version__}
+    from .vlm import get_backend
+
+    backend = get_backend()
+    return {"status": "ok", "version": __version__, "vlm": backend.name if backend else None}
 
 
 @app.post("/v1/parse", dependencies=[Depends(_auth)])
@@ -43,11 +49,12 @@ async def parse(
     file: UploadFile = File(...),
     ocr: bool = Query(True, description="use OCR for scanned pages and images"),
     thai_digits: bool = Query(False, description="convert Thai digits to Arabic digits"),
+    ocr_engine: Literal["auto", "vlm", "tesseract"] = Query("auto", description="auto = LFM3-VL-2B if configured, else Tesseract"),
 ):
     """Parse a file into structured blocks plus a Markdown rendering."""
     data = await _read(file)
     try:
-        doc = parse_bytes(data, file.filename, ocr=ocr, thai_digits=thai_digits)
+        doc = parse_bytes(data, file.filename, ocr=ocr, thai_digits=thai_digits, ocr_engine=ocr_engine)
     except Exception as exc:  # corrupt or unsupported input
         raise HTTPException(422, f"could not parse file: {exc}") from exc
     out = doc.to_dict()
@@ -60,11 +67,12 @@ async def chunk(
     file: UploadFile = File(...),
     max_chars: int = Query(1200, ge=100, le=20000),
     ocr: bool = True,
+    ocr_engine: Literal["auto", "vlm", "tesseract"] = "auto",
 ):
     """Parse and split into RAG-ready chunks (Thai-aware)."""
     data = await _read(file)
     try:
-        doc = parse_bytes(data, file.filename, ocr=ocr)
+        doc = parse_bytes(data, file.filename, ocr=ocr, ocr_engine=ocr_engine)
     except Exception as exc:
         raise HTTPException(422, f"could not parse file: {exc}") from exc
     return {

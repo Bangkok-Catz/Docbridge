@@ -17,6 +17,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--format", choices=["md", "json", "chunks"], default="md")
     p.add_argument("--chunk-size", type=int, default=1200, help="max characters per chunk (chunks format)")
     p.add_argument("--no-ocr", action="store_true")
+    p.add_argument("--ocr-engine", choices=["auto", "vlm", "tesseract"], default="auto",
+                   help="auto = LFM3-VL-2B if DOCBRIDGE_VLM is set, else Tesseract")
     p.add_argument("--thai-digits", action="store_true", help="convert Thai digits to Arabic digits")
 
     s = sub.add_parser("serve", help="run the HTTP API (needs the 'api' extra)")
@@ -31,7 +33,7 @@ def main(argv: list[str] | None = None) -> int:
         uvicorn.run("docbridge.api:app", host=args.host, port=args.port)
         return 0
 
-    doc = parse_file(args.file, ocr=not args.no_ocr, thai_digits=args.thai_digits)
+    doc = parse_file(args.file, ocr=not args.no_ocr, thai_digits=args.thai_digits, ocr_engine=args.ocr_engine)
     for w in doc.warnings:
         print(f"warning: {w}", file=sys.stderr)
     if args.format == "md":

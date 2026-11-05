@@ -15,13 +15,21 @@ def parse_bytes(
     ocr: bool = True,
     normalize: bool = True,
     thai_digits: bool = False,
+    ocr_engine: str = "auto",
 ) -> Document:
-    """Parse a document from bytes. The file kind is sniffed, not trusted from the name."""
+    """Parse a document from bytes. The file kind is sniffed, not trusted from the name.
+
+    ocr_engine: "auto" (LFM3-VL-2B if DOCBRIDGE_VLM is set, else Tesseract), "vlm" or "tesseract".
+    """
+    from .parsers.ocr import ENGINES
+
+    if ocr_engine not in ENGINES:
+        raise ValueError(f"ocr_engine must be one of {ENGINES}")
     kind = sniff_kind(data, filename)
     if kind == "pdf":
         from .parsers.pdf import parse_pdf
 
-        doc = parse_pdf(data, filename, ocr=ocr)
+        doc = parse_pdf(data, filename, ocr=ocr, engine=ocr_engine)
     elif kind == "docx":
         from .parsers.docx import parse_docx
 
@@ -33,7 +41,7 @@ def parse_bytes(
     elif kind == "image":
         from .parsers.ocr import parse_image
 
-        doc = parse_image(data, filename) if ocr else Document(filename=filename, kind="image", warnings=["OCR disabled"])
+        doc = parse_image(data, filename, engine=ocr_engine) if ocr else Document(filename=filename, kind="image", warnings=["OCR disabled"])
     else:
         from .parsers.text import parse_text
 

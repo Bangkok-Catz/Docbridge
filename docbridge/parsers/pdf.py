@@ -11,7 +11,7 @@ import statistics
 
 from ..detect import is_thai_char
 from ..models import Block, Document
-from .ocr import ocr_available, ocr_image
+from .ocr import ocr_available, ocr_to_blocks
 
 
 def _join(a: str, b: str) -> str:
@@ -87,24 +87,51 @@ def _page_blocks(page, page_no: int) -> list[Block]:
     return blocks
 
 
-def parse_pdf(data: bytes, filename: str | None = None, *, ocr: bool = True) -> Document:
+def garbled_ratio(text: str) -> float:
+    """Share of characters that signal a broken text layer.
+
+    Older Thai PDFs often embed fonts without a usable ToUnicode map, so text
+    extracts as "(cid:123)" codes, Private Use Area glyphs or U+FFFD.
+    """
+    if not text:
+        return 0.0
+    bad = text.count("(cid:") * 6
+    bad += sum(1 for c in text if "" <= c <= "" or c == "�")
+    visible = sum(1 for c in text if not c.isspace())
+    return min(1.0, bad / visible) if visible else 0.0
+
+
+GARBLED_THRESHOLD = 0.15
+
+
+def parse_pdf(data: bytes, filename: str | None = None, *, ocr: bool = True, engine: str = "auto") -> Document:
     import pdfplumber
 
     doc = Document(filename=filename, kind="pdf")
+    engines_used: set[str] = set()
     with pdfplumber.open(io.BytesIO(data)) as pdf:
         doc.pages = len(pdf.pages)
         info = pdf.metadata or {}
         doc.metadata = {k.lower(): v for k, v in info.items() if k in ("Title", "Author") and v}
         for i, page in enumerate(pdf.pages, start=1):
             blocks = _page_blocks(page, i)
+            page_text = " ".join(b.text for b in blocks) + " ".join(c for b in blocks for r in b.rows for c in r)
+            reason = None
             if not blocks and not page.chars:
-                if ocr and ocr_available():
+                reason = "no text layer"
+            elif garbled_ratio(page_text) > GARBLED_THRESHOLD:
+                reason = "text layer looks garbled (broken font encoding)"
+            if reason:
+                if ocr and ocr_available(engine):
                     img = page.to_image(resolution=200).original
-                    text, lang = ocr_image(img)
-                    for p in [p.strip() for p in text.split("\n\n") if p.strip()]:
-                        blocks.append(Block("paragraph", p, page=i))
-                    doc.warnings.append(f"page {i}: no text layer, used OCR ({lang})")
+                    ocr_blocks, used = ocr_to_blocks(img, i, engine, doc.warnings)
+                    if used:
+                        blocks = ocr_blocks
+                        engines_used.add(used)
+                        doc.warnings.append(f"page {i}: {reason}, used OCR ({used})")
                 else:
-                    doc.warnings.append(f"page {i}: no text layer (scanned?) and OCR is unavailable")
+                    doc.warnings.append(f"page {i}: {reason} and OCR is unavailable")
             doc.blocks.extend(blocks)
+    if engines_used:
+        doc.metadata["ocr_engine"] = ", ".join(sorted(engines_used))
     return doc

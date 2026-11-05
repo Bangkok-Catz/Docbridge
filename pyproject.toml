@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "docbridge"
-version = "0.1.0"
+version = "0.2.0"
 description = "Document parsing for AI agents: PDF, DOCX, HTML and images to clean Markdown and JSON, with first-class Thai and English support."
 readme = "README.md"
 license = { text = "MIT" }
@@ -27,6 +27,8 @@ dependencies = [
 [project.optional-dependencies]
 api = ["fastapi>=0.110", "uvicorn>=0.29", "python-multipart>=0.0.9"]
 ocr = ["pytesseract>=0.3.10", "pillow>=10.0"]
+# Liquid AI LFM3-VL-2B in-process (not needed if you run it via llama.cpp / vLLM)
+vlm = ["transformers>=5.21.0", "torch", "torchvision", "pillow>=10.0"]
 dev = ["pytest>=8.0", "httpx>=0.27", "reportlab>=4.0", "fastapi>=0.110", "python-multipart>=0.0.9", "pytesseract>=0.3.10", "pillow>=10.0"]
 
 [project.scripts]

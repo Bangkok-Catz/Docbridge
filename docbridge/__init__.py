@@ -4,4 +4,4 @@ from .models import Block, Document
 from .thai import normalize_thai, segment
 
 __all__ = ["parse_bytes", "parse_file", "Document", "Block", "normalize_thai", "segment"]
-__version__ = "0.1.0"
+__version__ = "0.2.0"

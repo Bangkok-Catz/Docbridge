@@ -2,7 +2,7 @@
 
 Document parsing for AI agents, with Thai treated as a first-class language.
 
-Turn PDF, DOCX, HTML, plain text and scanned images into clean **Markdown** and **structured JSON**, then split them into **RAG-ready chunks**. Runs locally, no API keys, no model downloads.
+Turn PDF, DOCX, HTML, plain text and scanned images into clean **Markdown** and **structured JSON**, then split them into **RAG-ready chunks**. Runs locally with no API keys. Optionally uses Liquid AI's **LFM3-VL-2B** vision model for scanned and broken-font pages.
 
 ## Why
 
@@ -68,14 +68,53 @@ Set `DOCBRIDGE_API_KEY` to require an `X-API-Key` header, and `DOCBRIDGE_MAX_MB`
 docker build -t docbridge . && docker run -p 8000:8000 docbridge
 ```
 
+## AI OCR with Liquid AI LFM3-VL-2B (optional)
+
+Tesseract struggles with Thai: tone marks get dropped, tables turn into loose text, and photos fail. docbridge can hand those pages to **[LFM3-VL-2B](https://huggingface.co/LiquidAI/LFM3-VL-2B)** instead. It's a ~2B open-weight vision model from Liquid AI (released Oct 2026) that lists Thai among its 16 languages, runs on a laptop CPU (about 1.1 GB at Q4_K_M), and returns Markdown with real tables.
+
+docbridge uses it only where it helps:
+
+- **Images** (photos, screenshots, scans)
+- **PDF pages with no text layer** (scanned documents)
+- **PDF pages with a garbled text layer**. Many Thai PDFs embed fonts without a usable Unicode map, so text extracts as `(cid:123)` codes or private-use glyphs. docbridge detects this and re-reads the page visually.
+
+Normal digital PDFs, DOCX and HTML never touch the model, so they stay fast.
+
+**Option A: llama.cpp server (recommended)**
+
+```bash
+llama serve -hf LiquidAI/LFM3-VL-2B-GGUF:Q4_K_M        # OpenAI-compatible on :8080
+export DOCBRIDGE_VLM=http
+docbridge parse scanned-invoice.pdf
+```
+
+Any OpenAI-compatible server works (vLLM, LM Studio, Liquid's API). Point to it with `DOCBRIDGE_VLM_URL` (default `http://localhost:8080/v1`), and set `DOCBRIDGE_VLM_MODEL` and `DOCBRIDGE_VLM_API_KEY` if needed.
+
+**Option B: in-process with transformers**
+
+```bash
+pip install -e ".[vlm]"
+export DOCBRIDGE_VLM=transformers
+```
+
+**Option C: everything in Docker**
+
+```bash
+docker compose up        # docbridge on :8000, LFM3-VL-2B on :8080
+```
+
+Choose the engine per request with `--ocr-engine auto|vlm|tesseract` (CLI) or `?ocr_engine=` (API). `auto` uses LFM3 when configured, otherwise Tesseract. If the model server is down, docbridge falls back to Tesseract and adds a warning. The engine used is reported in `metadata.ocr_engine`, and `/health` shows whether the VLM is active.
+
+> **License note:** docbridge is MIT. LFM3 weights are under the separate **LFM Open License v1.0**: free for commercial use by companies under US$10M annual revenue, with a paid license required above that. You download and run the weights yourself; docbridge does not bundle them.
+
 ## What it does
 
 | Input | How |
 |---|---|
-| PDF | Text layer via pdfplumber. Headings from font size, paragraphs from line spacing, tables extracted separately and kept in reading order. Pages with no text layer fall back to OCR. |
+| PDF | Text layer via pdfplumber. Headings from font size, paragraphs from line spacing, tables extracted separately and kept in reading order. Pages with no text layer, or with garbled Thai font encoding, are re-read with OCR. |
 | DOCX | Walks the body in document order: headings, lists, paragraphs and tables. |
 | HTML | Drops scripts, navigation and footers; keeps headings, lists, tables and code. |
-| Images | Tesseract OCR with `tha+eng`. |
+| Images | LFM3-VL-2B if configured, otherwise Tesseract OCR with `tha+eng`. |
 | Text / Markdown | Handles UTF-8 and legacy `cp874`. |
 
 File type is detected from content, not the extension.
@@ -102,15 +141,15 @@ Block types: `heading`, `paragraph`, `list_item`, `table`, `code`. Anything the 
 
 - **No layout model.** Multi-column PDFs, text boxes and complex nested tables can come out in the wrong order. A layout-model backend is the main planned upgrade.
 - **Thai line joining.** When a PDF line wraps, Thai lines are joined with no space because the source rarely says whether one existed. The text is correct for LLMs and search but may lose a phrase-level space at wrap points.
-- **OCR quality** depends on Tesseract. Clean scans are good; photos and handwriting are not.
+- **OCR quality.** Tesseract is fine for clean scans; use LFM3-VL-2B for photos, tables and Thai. LFM3 is a small model, so very dense pages can still have errors. Each page is sent to it as a separate request.
 - **Legacy `.doc`, `.xls`, `.pptx`** are not supported yet.
 
 ## Roadmap
 
 - XLSX and PPTX parsers
-- Optional layout-aware PDF backend for multi-column and scanned tables
+- Use LFM3-VL-2B for multi-column PDF reading order
+- Structured field extraction with LFM3 (invoice and receipt fields to JSON)
 - Thai-specific benchmark set (gov forms, invoices, tax documents)
-- Structured extraction (key-value fields from invoices and receipts)
 
 ## Develop
 
